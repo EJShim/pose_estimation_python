@@ -4,9 +4,10 @@ sys.path.append(root_path)
 import onnxruntime
 import numpy as np
 import cv2
+import vtk
 from scipy.special import softmax
 from reference.utils import pixel2cam, crop_image, joint_num, draw_skeleton, draw_heatmap, vis_3d_multiple_skeleton
-
+from reference. yolo import YoloV5s
 
 class MobileHumanPose():
 
@@ -62,7 +63,7 @@ class MobileHumanPose():
 
         return np.squeeze(output)
 
-    def process_output(self, output, abs_depth = None, bbox = None):  
+    def process_output(self, output, abs_depth, bbox):  
 
         heatmaps = output.reshape((-1,joint_num, self.output_depth*self.output_height*self.output_width))
         heatmaps = softmax(heatmaps, 2)
@@ -93,20 +94,18 @@ class MobileHumanPose():
 
         coord_out = np.squeeze(np.concatenate((accu_x, accu_y, accu_z), axis=2))
 
+        pose_2d = coord_out[:,:2]
+        pose_2d[:,0] = pose_2d[:,0] * self.img_width + bbox[0]
+        pose_2d[:,1] = pose_2d[:,1] * self.img_height + bbox[1]
 
-        return coord_out
-        # pose_2d = coord_out[:,:2]
-        # pose_2d[:,0] = pose_2d[:,0] * self.img_width + bbox[0]
-        # pose_2d[:,1] = pose_2d[:,1] * self.img_height + bbox[1]
+        joint_depth = coord_out[:,2]*1000 + abs_depth
 
-        # joint_depth = coord_out[:,2]*1000 + abs_depth
+        pose_3d = pixel2cam(pose_2d, joint_depth, self.focal_length, self.principal_points)
 
-        # pose_3d = pixel2cam(pose_2d, joint_depth, self.focal_length, self.principal_points)
+        # Calculate the joint heatmap
+        person_heatmap = cv2.resize(np.sqrt(heatmaps.sum(axis=(1,2))[0,:,:]), (self.img_width,self.img_height))
 
-        # # Calculate the joint heatmap
-        # person_heatmap = cv2.resize(np.sqrt(heatmaps.sum(axis=(1,2))[0,:,:]), (self.img_width,self.img_height))
-
-        # return pose_2d, pose_3d, person_heatmap, scores
+        return pose_2d, pose_3d, person_heatmap, scores
 
     def getModel_input_details(self):
 
@@ -131,6 +130,75 @@ class MobileHumanPose():
         self.output_width = self.output_shape[3]
 
 
-
 if __name__ == "__main__":
-    print("Reference code ifnerenc3e")
+
+    draw_detections = True
+    focal_length = [None, None]
+    principal_points = [None, None]
+
+    pose_model_path = './models/mobile_human_pose_working_well_256x256.onnx'
+    pose_estimator = MobileHumanPose(pose_model_path, focal_length, principal_points)
+
+    detector_model_path = './models/yolo_480_640_float32.onnx'
+    person_detector = YoloV5s(detector_model_path, conf_thres=0.5, iou_thres=0.4)
+
+    image = cv2.imread("samples/DF0N5391.jpg")
+    cv2.imshow("input image", image)
+
+    # Detect people in the image
+    boxes, scores = person_detector(image)
+
+    pose_img = image.copy()
+    if draw_detections:
+        pose_img = person_detector.draw_detections(pose_img, [boxes[0]], scores)
+    cv2.imshow("pose_image", pose_img)
+
+
+    # Simulate depth based on the bouding box area
+    box = boxes[0]
+    area = (box[2] - box[0]) * (box[3] - box[1])
+    depth = 500 / (area / (image.shape[0] * image.shape[1])) + 500
+    # areas = (boxes[:,2] - boxes[:,0]) * (boxes[:,3] - boxes[:,1])
+    # depths = 500/(areas/(image.shape[0]*image.shape[1]))+500
+
+    # Run Pose Estimation
+    keypoints, pose_3d, person_heatmap, scores = pose_estimator(image, box, depth)
+    pose_img = draw_skeleton(pose_img, keypoints, box[:2], scores)
+    cv2.imshow("pose_a", pose_img)
+
+
+    # Add the person heatmap to the image heatmap
+    heatmap_viz_img = image.copy()
+    img_heatmap = np.empty(image.shape[:2])
+    img_heatmap[box[1]:box[3],box[0]:box[2]] += person_heatmap 
+    heatmap_viz_img = draw_heatmap(heatmap_viz_img, img_heatmap)
+    cv2.imshow("heatmap", heatmap_viz_img)
+
+
+    iren = vtk.vtkRenderWindowInteractor()
+    iren.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+    renWin = vtk.vtkRenderWindow()
+    renWin.SetSize(1000, 1000)
+    iren.SetRenderWindow(renWin)
+    ren = vtk.vtkRenderer()
+    renWin.AddRenderer(ren)
+
+    for pose in pose_3d:        
+        sphere = vtk.vtkSphereSource()
+        sphere.SetCenter(pose[0], pose[1], pose[2])
+        sphere.SetRadius(10)
+        
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(sphere.GetOutputPort())
+
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+
+        ren.AddActor(actor)
+
+    ren.ResetCamera()
+    renWin.Render()
+    
+    iren.Start()
+    cv2.destroyAllWindows()
+    
