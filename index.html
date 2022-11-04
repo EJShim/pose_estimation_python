@@ -1,0 +1,173 @@
+<html>
+
+
+<head>
+<title> 3D Pose estimation</title>
+
+<style>
+
+    body{
+        margin :  0;
+    }
+
+    main{
+        width : 100vw;
+        height : 100vh;
+        display: flex;
+    }
+
+    #image{
+        width : 100vh;;
+        height : 100vh;
+    }
+
+    #renderer{
+        width : calc(100% - 100vh);
+        height : 100vh;
+    }
+
+    #debug{
+        position : absolute;
+        top : 50px;
+        left : 50%;
+        width : 250px;
+        height : 250px;
+        background-color: red;
+    }
+</style>
+</head>
+
+
+<body>
+    <script type="text/javascript" src="https://unpkg.com/@babel/polyfill@7.0.0/dist/polyfill.js"></script>
+    <script type="text/javascript" src="https://unpkg.com/vtk.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+
+    
+    <main>
+
+        <!-- <img id="image" src='/sample_cropped.png'></img> -->
+        <!-- <canvas id="debug"></canvas> -->
+
+        <video id="image" muted autoplay loop>
+            <source src="samples/output.mp4" type="video/mp4">
+        </video>
+
+        <div id="renderer"></div>
+    </main>
+
+
+    <script type="text/javascript">
+
+        let session = null;
+        let renderer = null;
+        let renderWindow = null;
+        let animating = false;
+
+        let points = Array(21).fill(null);
+
+
+        
+        let canvas = document.createElement("canvas");
+        // let canvas = document.getElementById("debug");
+        canvas.width = 256;
+        canvas.height = 256;
+
+
+        const makeActor = (polydata) =>{
+            var mapper = vtk.Rendering.Core.vtkMapper.newInstance();
+            mapper.setInputConnection(polydata.getOutputPort());
+
+            var actor = vtk.Rendering.Core.vtkActor.newInstance();        
+            actor.setMapper(mapper);
+
+            return actor;
+        }
+
+        const animate = async ()=>{
+
+            if(!animating){
+                animating= true;
+                const imageContainer = document.getElementById("image");
+                
+                let ctx = canvas.getContext("2d");
+                ctx.drawImage(imageContainer, 0, 0, canvas.width, canvas.height);        
+                
+                let imageData =  Float32Array.from(ctx.getImageData(0, 0, 256, 256).data) ;
+                let inputTensor = new ort.Tensor('float32', imageData, [256, 256, 4]);
+
+                let outputTensor = await session.run({"pre_processor/input" : inputTensor});
+                let outputData = outputTensor["post_processor/output"].data;
+                
+
+                for(let i=0 ; i<21 ; i++){
+                    let position = [outputData[i*3], outputData[i*3+1], outputData[i*3+2]];                
+                    points[i].setCenter(...position);
+                }
+
+                renderWindow.render();
+                animating = false;
+            }
+            
+
+            requestAnimationFrame(animate);
+        }
+
+        const main = async ()=>{
+
+            var genericRenderWindow  = vtk.Rendering.Misc.vtkGenericRenderWindow.newInstance();
+            renderer = genericRenderWindow.getRenderer();
+            renderer.setBackground(.2, .2, .2)            
+            renderWindow = genericRenderWindow.getRenderWindow();
+
+
+            const container = document.getElementById("renderer");
+            genericRenderWindow.setContainer(container);
+
+
+            // Initialize dl model
+            session = await ort.InferenceSession.create('/models/estimator.onnx');
+
+            const imageContainer = document.getElementById("image");
+            
+            //let canvas = document.createElement("canvas");
+            // let canvas = document.getElementById("debug");
+            // canvas.width = 256;
+            // canvas.height = 256;
+            let ctx = canvas.getContext("2d");
+            ctx.drawImage(imageContainer, 0, 0, canvas.width, canvas.height);        
+            
+            let imageData =  Float32Array.from(ctx.getImageData(0, 0, 256, 256).data) ;
+            let inputTensor = new ort.Tensor('float32', imageData, [256, 256, 4]);
+
+            let outputTensor = await session.run({"pre_processor/input" : inputTensor});
+            let outputData = outputTensor["post_processor/output"].data;
+            
+            for(let i=0 ; i<21 ; i++){
+                let position = [outputData[i*3], outputData[i*3+1], outputData[i*3+2]];                
+                let sphereSource = vtk.Filters.Sources.vtkSphereSource.newInstance()
+                sphereSource.setRadius(.03)
+                sphereSource.setCenter(...position);
+                points[i] = sphereSource;
+
+                let actor = makeActor(points[i]);    
+                renderer.addActor(actor);
+            }
+
+            renderer.resetCamera();
+            genericRenderWindow.resize();
+            renderWindow.render();
+
+            animate();
+        }
+
+
+        main()
+        
+
+        
+    </script>
+
+</body>
+
+</html>
