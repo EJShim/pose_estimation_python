@@ -5,8 +5,9 @@ import onnxruntime
 import numpy as np
 import cv2
 import vtk
+from vtk.util import numpy_support
 from scipy.special import softmax
-from reference.utils import pixel2cam, crop_image, joint_num, draw_skeleton, draw_heatmap, vis_3d_multiple_skeleton
+from reference.utils import pixel2cam, crop_image, joint_num, draw_skeleton, draw_heatmap, colors, skeleton
 from reference. yolo import YoloV5s
 
 class MobileHumanPose():
@@ -132,6 +133,10 @@ class MobileHumanPose():
 
 if __name__ == "__main__":
 
+    input_path = "samples/DF0N5391.jpg"
+    if len(sys.argv) >= 2:
+        input_path = sys.argv[1]
+
     draw_detections = True
     focal_length = [None, None]
     principal_points = [None, None]
@@ -142,17 +147,16 @@ if __name__ == "__main__":
     detector_model_path = './models/yolo_480_640_float32.onnx'
     person_detector = YoloV5s(detector_model_path, conf_thres=0.5, iou_thres=0.4)
 
-    image = cv2.imread("samples/DF0N5391.jpg")
-    cv2.imshow("input image", image)
+    image = cv2.imread(input_path)
+    
 
     # Detect people in the image
     boxes, scores = person_detector(image)
 
-    pose_img = image.copy()
+    det_img = image.copy()
     if draw_detections:
-        pose_img = person_detector.draw_detections(pose_img, [boxes[0]], scores)
-    cv2.imshow("pose_image", pose_img)
-
+        det_img = person_detector.draw_detections(det_img, [boxes[0]], scores)
+    
 
     # Simulate depth based on the bouding box area
     box = boxes[0]
@@ -163,17 +167,14 @@ if __name__ == "__main__":
 
     # Run Pose Estimation
     keypoints, pose_3d, person_heatmap, scores = pose_estimator(image, box, depth)
+    pose_img = image.copy()
     pose_img = draw_skeleton(pose_img, keypoints, box[:2], scores)
-    cv2.imshow("pose_a", pose_img)
-
-
+    
     # Add the person heatmap to the image heatmap
     heatmap_viz_img = image.copy()
     img_heatmap = np.empty(image.shape[:2])
     img_heatmap[box[1]:box[3],box[0]:box[2]] += person_heatmap 
     heatmap_viz_img = draw_heatmap(heatmap_viz_img, img_heatmap)
-    cv2.imshow("heatmap", heatmap_viz_img)
-
 
     iren = vtk.vtkRenderWindowInteractor()
     iren.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
@@ -183,21 +184,54 @@ if __name__ == "__main__":
     ren = vtk.vtkRenderer()
     renWin.AddRenderer(ren)
 
-    for pose in pose_3d:        
-        sphere = vtk.vtkSphereSource()
-        sphere.SetCenter(pose[0], pose[1], pose[2])
-        sphere.SetRadius(10)
+
+
+    # Add Joint
+    points = vtk.vtkPoints()
+    verts = vtk.vtkCellArray()
+    for idx, pose in enumerate(pose_3d):        
+
+        points.InsertNextPoint(pose)
         
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(sphere.GetOutputPort())
+        vertex = vtk.vtkVertex()
+        vertex.GetPointIds().SetId(0, idx)
+        verts.InsertNextCell(vertex)
 
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
+    # Add Skeelton
+    lines = vtk.vtkCellArray()
+    for sk in skeleton:
+        print(sk)
+        line = vtk.vtkLine()
+        line.GetPointIds().SetId(0, sk[0])
+        line.GetPointIds().SetId(1, sk[1])
+        lines.InsertNextCell(line)    
 
-        ren.AddActor(actor)
+
+
+    polydata = vtk.vtkPolyData()
+    polydata.SetPoints(points)    
+    polydata.SetVerts(verts)
+    polydata.SetLines(lines)
+
+    mapper = vtk.vtkPolyDataMapper()
+    # mapper.SetRadius(10)
+    mapper.SetInputData(polydata)
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)    
+    
+    ren.AddActor(actor)    
 
     ren.ResetCamera()
     renWin.Render()
+
+    #Show 2d images    
+    # cv2.imshow("pose_a", pose_img)
+    # cv2.imshow("heatmap", heatmap_viz_img)
+
+    a = cv2.hconcat([image, det_img])
+    b = cv2.hconcat([heatmap_viz_img, pose_img ])
+    final = cv2.vconcat([a,b])
+    cv2.imshow("image", final)
     
     iren.Start()
     cv2.destroyAllWindows()
