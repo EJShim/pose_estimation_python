@@ -189,29 +189,31 @@ if __name__ == "__main__":
     # Add Joint
     points = vtk.vtkPoints()
     verts = vtk.vtkCellArray()
+    point_color = vtk.vtkIntArray()
+    point_color.SetNumberOfComponents(3)
     for idx, pose in enumerate(pose_3d):        
 
-        points.InsertNextPoint(pose)
-        
+        points.InsertNextPoint(pose)        
         vertex = vtk.vtkVertex()
         vertex.GetPointIds().SetId(0, idx)
         verts.InsertNextCell(vertex)
 
+        color = colors[idx]
+        point_color.InsertNextTuple([color[0], color[1], color[2]])
+        
     # Add Skeelton
     lines = vtk.vtkCellArray()
-    for sk in skeleton:
-        print(sk)
+    for sk in skeleton:        
         line = vtk.vtkLine()
         line.GetPointIds().SetId(0, sk[0])
         line.GetPointIds().SetId(1, sk[1])
         lines.InsertNextCell(line)    
 
-
-
     polydata = vtk.vtkPolyData()
     polydata.SetPoints(points)    
     polydata.SetVerts(verts)
     polydata.SetLines(lines)
+    polydata.GetPointData().SetScalars(point_color)
 
     mapper = vtk.vtkPolyDataMapper()
     # mapper.SetRadius(10)
