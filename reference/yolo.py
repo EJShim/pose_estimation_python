@@ -206,9 +206,9 @@ class YoloV5s():
             return img
 
         for box, score in zip(boxes, scores):
-            img = cv2.rectangle(img, (int(box[0]),int(box[1])), (int(box[2]),int(box[3])), (255,191,0), 1)
+            img = cv2.rectangle(img, (int(box[0]),int(box[1])), (int(box[2]),int(box[3])), (255,0,0), 3)
 
-            cv2.putText(img, str(int(100*score)) + '%', (int(box[0]),int(box[1])), cv2.FONT_HERSHEY_SIMPLEX , 1, (255,191,0), 1, cv2.LINE_AA)
+            cv2.putText(img, str(int(100*score)) + '%', (int(box[0]),int(box[1])), cv2.FONT_HERSHEY_SIMPLEX , 1, (255,191,0), 3, cv2.LINE_AA)
 
         return img
 

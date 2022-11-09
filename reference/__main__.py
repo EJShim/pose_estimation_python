@@ -161,9 +161,7 @@ if __name__ == "__main__":
     # Simulate depth based on the bouding box area
     box = boxes[0]
     area = (box[2] - box[0]) * (box[3] - box[1])
-    depth = 500 / (area / (image.shape[0] * image.shape[1])) + 500
-    # areas = (boxes[:,2] - boxes[:,0]) * (boxes[:,3] - boxes[:,1])
-    # depths = 500/(areas/(image.shape[0]*image.shape[1]))+500
+    depth = 500 / (area / (image.shape[0] * image.shape[1])) + 500    
 
     # Run Pose Estimation
     keypoints, pose_3d, person_heatmap, scores = pose_estimator(image, box, depth)
@@ -189,7 +187,7 @@ if __name__ == "__main__":
     # Add Joint
     points = vtk.vtkPoints()
     verts = vtk.vtkCellArray()
-    point_color = vtk.vtkIntArray()
+    point_color = vtk.vtkUnsignedCharArray()
     point_color.SetNumberOfComponents(3)
     for idx, pose in enumerate(pose_3d):        
 
@@ -199,7 +197,7 @@ if __name__ == "__main__":
         verts.InsertNextCell(vertex)
 
         color = colors[idx]
-        point_color.InsertNextTuple([color[0], color[1], color[2]])
+        point_color.InsertNextTuple([color[0] * 255, color[1] * 255, color[2] * 255])
         
     # Add Skeelton
     lines = vtk.vtkCellArray()
@@ -220,15 +218,13 @@ if __name__ == "__main__":
     mapper.SetInputData(polydata)
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)    
+    actor.GetProperty().SetLineWidth(5);
+
     
     ren.AddActor(actor)    
 
     ren.ResetCamera()
-    renWin.Render()
-
-    #Show 2d images    
-    # cv2.imshow("pose_a", pose_img)
-    # cv2.imshow("heatmap", heatmap_viz_img)
+    renWin.Render()    
 
     a = cv2.hconcat([image, det_img])
     b = cv2.hconcat([heatmap_viz_img, pose_img ])
