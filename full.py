@@ -10,11 +10,11 @@ import numpy as np
 class Yolo_preprocessor(torch.nn.Module):
     def forward(self, x):
         x = x.permute(2, 0, 1)
-        x = x.unsqueeze(0)
-        output = torch.nn.functional.interpolate(x, size=(480,640))
+        x = x.unsqueeze(0)        
+        x = x.to(torch.float32)
+        output = torch.nn.functional.interpolate(x, size=(480,640), mode='bilinear')
         output = output.permute(0, 2, 3, 1)
         output = output / 255.0
-        output = output.to(torch.float32)
 
         return output
 
@@ -156,14 +156,16 @@ if __name__ == "__main__":
     if len(sys.argv) >= 2:
         input_path = sys.argv[1]
 
+
     detector_model_path = './models/yolo_480_640_float32.onnx'
     pose_model_path = './models/mobile_human_pose_working_well_256x256.onnx'
 
+    detection_preprocessing__model = onnxruntime.InferenceSession('./models/yolo_480_640_float32_pre.onnx')
     detection_model = onnxruntime.InferenceSession(detector_model_path)
     pose_model = onnxruntime.InferenceSession(pose_model_path)
 
     #Postprocessors
-    detector_preprocessor = Yolo_preprocessor()
+    # detector_preprocessor = Yolo_preprocessor()
     detection_postprocessor = Yolo_postprocessor()
 
 
@@ -181,8 +183,9 @@ if __name__ == "__main__":
     image_height = image.shape[1]
     
     # Run Detection
-    image_input = detector_preprocessor(torch.tensor(image))
-    output = detection_model.run(["Identity"], {"input_1":image_input.numpy()})[0]
+    # image_input = detector_preprocessor(torch.tensor(image))
+    image_input = detection_preprocessing__model.run(["output"], {"input" : image})[0]
+    output = detection_model.run(["Identity"], {"input_1":image_input})[0]
     boxes, scores = detection_postprocessor(output, image_width, image_height)
     
 
