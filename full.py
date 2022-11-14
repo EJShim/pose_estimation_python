@@ -9,10 +9,12 @@ import numpy as np
 
 class Yolo_preprocessor(torch.nn.Module):
     def forward(self, x):
-        output = cv2.resize(x, (640, 480))
+        x = x.permute(2, 0, 1)
+        x = x.unsqueeze(0)
+        output = torch.nn.functional.interpolate(x, size=(480,640))
+        output = output.permute(0, 2, 3, 1)
         output = output / 255.0
-        output = np.expand_dims(output, 0)
-        output = output.astype(np.float32)
+        output = output.to(torch.float32)
 
         return output
 
@@ -179,8 +181,8 @@ if __name__ == "__main__":
     image_height = image.shape[1]
     
     # Run Detection
-    image_input = detector_preprocessor(image)
-    output = detection_model.run(["Identity"], {"input_1":image_input})[0]
+    image_input = detector_preprocessor(torch.tensor(image))
+    output = detection_model.run(["Identity"], {"input_1":image_input.numpy()})[0]
     boxes, scores = detection_postprocessor(output, image_width, image_height)
     
 
