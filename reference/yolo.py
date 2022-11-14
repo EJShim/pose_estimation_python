@@ -21,8 +21,7 @@ def non_max_suppression(boxes, scores, threshold):
     # box coordinate ranges are inclusive-inclusive
     areas = (ys2 - ys1) * (xs2 - xs1)
     scores_indexes = scores.argsort().tolist()
-    print(scores_indexes)
-    exit()
+
     boxes_keep_index = []
 
     while len(scores_indexes):
