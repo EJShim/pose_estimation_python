@@ -130,6 +130,14 @@ if __name__ == "__main__":
     cv2.imshow("box", box_img)
 
 
+    #TODO : Start Detection
+
+    # Simulate depth based on the bouding box area
+    box = boxes[0]
+    area = (box[2] - box[0]) * (box[3] - box[1])
+    depth = 500 / (area / (image.shape[0] * image.shape[1])) + 500    
+
+
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     
