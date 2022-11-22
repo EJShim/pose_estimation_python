@@ -6,6 +6,9 @@ from vtk.util import numpy_support
 import torch
 import numpy as np
 import torchvision
+from processer import Preprocessor, Postprocessor
+
+from reference.utils import skeleton
 
 
 class Yolo_preprocessor(torch.nn.Module):
@@ -36,10 +39,7 @@ class Yolo_postprocessor(torch.nn.Module):
         
         y = x.clone()
 
-        # y[:, 0] = x[:, 0] - x[:, 2] // 2 # top left x
-        # y[:, 1] = x[:, 1] - x[:, 3] // 2 # top left y
-        # y[:, 2] = x[:, 0] + x[:, 2] // 2 # bottom right x
-        # y[:, 3] = x[:, 1] + x[:, 3] // 2  # bottom right y
+
         
         y[:, 0] = x[:, 0] - torch.div(x[:, 2] , 2, rounding_mode='trunc') # top left x
         y[:, 1] = x[:, 1] - torch.div(x[:, 3] , 2, rounding_mode='trunc') # top left y
@@ -101,16 +101,14 @@ if __name__ == "__main__":
     detection_model = onnxruntime.InferenceSession('./models/yolo_480_640_float32.onnx')
     detection_postprocessing_model = onnxruntime.InferenceSession('./models/yolo_480_640_float32_post.onnx')
 
-    # Get Pose model    
+    # Get Pose model
+    pose_preprocessing_model = onnxruntime.InferenceSession('./models/pose_preprocessor.onnx')
     pose_model = onnxruntime.InferenceSession('./models/mobile_human_pose_working_well_256x256.onnx')
+    pose_postprocessing_model = onnxruntime.InferenceSession('./models/pose_postprocessor.onnx')
 
-    #Postprocessors
-    # detector_preprocessor = Yolo_preprocessor()
-    # detection_postprocessor = Yolo_postprocessor()
 
     #Read input image
     image = cv2.imread(input_path)
-    cv2.imshow("original image", image)
     
     
     # Run Detection
@@ -123,22 +121,98 @@ if __name__ == "__main__":
     
 
     #Draw xboxes
-    for box, score in zip(boxes, scores):
-        box_img = cv2.rectangle(image, (int(box[0]),int(box[1])), (int(box[2]),int(box[3])), (255,0,0), 3)
-        cv2.putText(box_img, str(int(100*score)) + '%', (int(box[0]),int(box[1])), cv2.FONT_HERSHEY_SIMPLEX , 1, (255,191,0), 3, cv2.LINE_AA)
+    box = boxes[0]
+    score = scores[0]
+    # for box, score in zip(boxes, scores):
 
+
+
+    # Crop
+    box = box.astype(np.int)
+    cropped_image = image[box[1]:box[3], box[0]:box[2]]
+    resized_image = cv2.resize(cropped_image, (256, 256))
+
+    #iNITIALIZE Processor
+    pre = Preprocessor()
+    img_input = torch.tensor(resized_image)
+    img_input = pre(img_input)
+
+    
+    output = pose_model.run(["output"], {"input" : img_input.numpy()})[0]
+
+    
+    post = Postprocessor()
+    output = torch.tensor(output)
+    output = post(output)
+    print(output.shape)
+
+    #Visualize output
+    # cv2.imshow("original image", image)
+    cv2.imshow("cropped", cropped_image)
+    cv2.imshow("resized", resized_image)
+
+
+    box_img = image.copy()
+    cv2.rectangle(box_img, (int(box[0]),int(box[1])), (int(box[2]),int(box[3])), (255,0,0), 3)
+    cv2.putText(box_img, str(int(100*score)) + '%', (int(box[0]),int(box[1])), cv2.FONT_HERSHEY_SIMPLEX , 1, (255,191,0), 3, cv2.LINE_AA)
     cv2.imshow("box", box_img)
 
 
-    #TODO : Start Detection
-
-    # Simulate depth based on the bouding box area
-    box = boxes[0]
-    area = (box[2] - box[0]) * (box[3] - box[1])
-    depth = 500 / (area / (image.shape[0] * image.shape[1])) + 500    
-
-
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Visualize 3D Joints
+    iren = vtk.vtkRenderWindowInteractor()
+    iren.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
+    renWin = vtk.vtkRenderWindow()
+    renWin.SetSize(1000, 1000)
+    iren.SetRenderWindow(renWin)
+    ren = vtk.vtkRenderer()
+    renWin.AddRenderer(ren)
     
 
+    # Add Joint
+    points = vtk.vtkPoints()
+    verts = vtk.vtkCellArray()
+    point_color = vtk.vtkUnsignedCharArray()
+    point_color.SetNumberOfComponents(3)
+    for idx, pose in enumerate(output):        
+
+        points.InsertNextPoint(pose.numpy()) 
+        vertex = vtk.vtkVertex()
+        vertex.GetPointIds().SetId(0, idx)
+        verts.InsertNextCell(vertex)
+
+        # color = colors[idx]
+        color = [1, 1, 1]
+        point_color.InsertNextTuple([color[0] * 255, color[1] * 255, color[2] * 255])
+        
+    # Add Skeelton
+    lines = vtk.vtkCellArray()
+    for sk in skeleton:        
+        line = vtk.vtkLine()
+        line.GetPointIds().SetId(0, sk[0])
+        line.GetPointIds().SetId(1, sk[1])
+        lines.InsertNextCell(line)    
+
+    polydata = vtk.vtkPolyData()
+    polydata.SetPoints(points)    
+    polydata.SetVerts(verts)
+    polydata.SetLines(lines)
+    polydata.GetPointData().SetScalars(point_color)
+
+    mapper = vtk.vtkPolyDataMapper()
+    # mapper.SetRadius(10)
+    mapper.SetInputData(polydata)
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)    
+    actor.GetProperty().SetLineWidth(5)
+
+    
+    ren.AddActor(actor)    
+
+    ren.ResetCamera()
+    renWin.Render()    
+
+    iren.Start()
+
+
+    # cv2.waitKey(0)
+    cv2.destroyAllWindows()

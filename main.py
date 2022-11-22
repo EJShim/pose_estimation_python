@@ -43,7 +43,7 @@ def sphereActor(pos = [0, 0, 0]):
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
 
-    return actor;
+    return actor
 
 
 if __name__ == "__main__":
