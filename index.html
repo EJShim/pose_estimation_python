@@ -17,23 +17,24 @@
     }
 
     #image{
-        width : 100vh;;
+        width : 50vw;
         height : 100vh;
+    }
+
+    .output{
+        width : 50vw;
+        height : 100vh;        
+        background: blue;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     #renderer{
-        width : calc(100% - 100vh);
-        height : 100vh;
+        width : min(50vw, 100vh);
+        height : min(50vw, 100vh);
     }
 
-    #debug{
-        position : absolute;
-        top : 50px;
-        left : 50%;
-        width : 250px;
-        height : 250px;
-        background-color: red;
-    }
 </style>
 </head>
 
@@ -47,17 +48,23 @@
     <main>
 
         <!-- <img id="image" src='/sample_cropped.png'></img> -->
-        <!-- <canvas id="debug"></canvas> -->
 
         <video id="image" muted autoplay loop>
-            <source src="samples/output.mp4" type="video/mp4">
+            <source src="samples/dancing.mp4" type="video/mp4">
         </video>
+        <div class="output">
+            <canvas id="renderer"></canvas>
+        </div>
+        
 
-        <div id="renderer"></div>
     </main>
 
 
     <script type="text/javascript">
+
+        let yolo_preprocessor = null;
+        let yolo = null;
+        let yolo_postprocessor = null;
 
         let session = null;
         let renderer = null;
@@ -66,12 +73,6 @@
 
         let points = Array(21).fill(null);
 
-
-        
-        let canvas = document.createElement("canvas");
-        // let canvas = document.getElementById("debug");
-        canvas.width = 256;
-        canvas.height = 256;
 
 
         const makeActor = (polydata) =>{
@@ -89,23 +90,37 @@
             if(!animating){
                 animating= true;
                 const imageContainer = document.getElementById("image");
-                
-                let ctx = canvas.getContext("2d");
-                ctx.drawImage(imageContainer, 0, 0, canvas.width, canvas.height);        
-                
-                let imageData =  Float32Array.from(ctx.getImageData(0, 0, 256, 256).data) ;
-                let inputTensor = new ort.Tensor('float32', imageData, [256, 256, 4]);
 
-                let outputTensor = await session.run({"pre_processor/input" : inputTensor});
-                let outputData = outputTensor["post_processor/output"].data;
+                //debug
+                let renderer = document.getElementById("renderer");
+                renderer.width = 400;
+                renderer.height = 400;
+                let ctx = renderer.getContext("2d");
+                ctx.drawImage(imageContainer, 0, 0,renderer.width, renderer.height);       
+                
+                let imageData =  Float32Array.from(ctx.getImageData(0, 0, renderer.width, renderer.height).data) ;
+                let input_tensor = new ort.Tensor('float32', imageData, [renderer.width, renderer.height, 4]);
+                let image_input = await yolo_preprocessor.run({"input" : input_tensor});
+                image_input = image_input.output;
+                
+                let yolo_output = await yolo.run({"input_1" : image_input});
+                // yolo_output = yolo_output.Identity;
+
+                // let yolo_final = await yolo_postprocessor.run({"input" : yolo_output, "original_image" : input_tensor});                
+                // let box = yolo_final.boxes;
+                // let score = yolo_final.scores;
+                // console.log(box);
+                // let outputTensor = await session.run({"pre_processor/input" : inputTensor});
+                // let outputData = outputTensor["post_processor/output"].data;
                 
 
-                for(let i=0 ; i<21 ; i++){
-                    let position = [outputData[i*3], outputData[i*3+1], outputData[i*3+2]];                
-                    points[i].setCenter(...position);
-                }
-
-                renderWindow.render();
+                // for(let i=0 ; i<21 ; i++){
+                //     let position = [outputData[i*3], outputData[i*3+1], outputData[i*3+2]];                
+                //     points[i].setCenter(...position);
+                // }
+                // renderWindow.render();
+                
+                
                 animating = false;
             }
             
@@ -126,37 +141,44 @@
 
 
             // Initialize dl model
-            session = await ort.InferenceSession.create('/models/estimator.onnx');
 
-            const imageContainer = document.getElementById("image");
+            yolo_preprocessor = await ort.InferenceSession.create('/models/yolo_480_640_float32_pre.onnx', {executionProviders : ['wasm']})
+            yolo = await ort.InferenceSession.create('/models/yolo_480_640_float32.onnx', {executionProviders : ['webgl']});
+            yolo_postprocessor = await ort.InferenceSession.create('/models/yolo_480_640_float32_post.onnx')
+            session = await ort.InferenceSession.create('/models/estimator.onnx');
+            console.log("Initialization Done")
+
+
+
+            // const imageContainer = document.getElementById("image");
             
-            //let canvas = document.createElement("canvas");
+            // //let canvas = document.createElement("canvas");
             // let canvas = document.getElementById("debug");
             // canvas.width = 256;
             // canvas.height = 256;
-            let ctx = canvas.getContext("2d");
-            ctx.drawImage(imageContainer, 0, 0, canvas.width, canvas.height);        
+            // let ctx = canvas.getContext("2d");
+            // ctx.drawImage(imageContainer, 0, 0, canvas.width, canvas.height);        
             
-            let imageData =  Float32Array.from(ctx.getImageData(0, 0, 256, 256).data) ;
-            let inputTensor = new ort.Tensor('float32', imageData, [256, 256, 4]);
+            // let imageData =  Float32Array.from(ctx.getImageData(0, 0, 256, 256).data) ;
+            // let inputTensor = new ort.Tensor('float32', imageData, [256, 256, 4]);
 
-            let outputTensor = await session.run({"pre_processor/input" : inputTensor});
-            let outputData = outputTensor["post_processor/output"].data;
+            // let outputTensor = await session.run({"pre_processor/input" : inputTensor});
+            // let outputData = outputTensor["post_processor/output"].data;
             
-            for(let i=0 ; i<21 ; i++){
-                let position = [outputData[i*3], outputData[i*3+1], outputData[i*3+2]];                
-                let sphereSource = vtk.Filters.Sources.vtkSphereSource.newInstance()
-                sphereSource.setRadius(.03)
-                sphereSource.setCenter(...position);
-                points[i] = sphereSource;
+            // for(let i=0 ; i<21 ; i++){
+            //     let position = [outputData[i*3], outputData[i*3+1], outputData[i*3+2]];                
+            //     let sphereSource = vtk.Filters.Sources.vtkSphereSource.newInstance()
+            //     sphereSource.setRadius(.03)
+            //     sphereSource.setCenter(...position);
+            //     points[i] = sphereSource;
 
-                let actor = makeActor(points[i]);    
-                renderer.addActor(actor);
-            }
+            //     let actor = makeActor(points[i]);    
+            //     renderer.addActor(actor);
+            // }
 
-            renderer.resetCamera();
-            genericRenderWindow.resize();
-            renderWindow.render();
+            // renderer.resetCamera();
+            // genericRenderWindow.resize();
+            // renderWindow.render();
 
             animate();
         }
