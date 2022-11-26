@@ -1,4 +1,4 @@
-from full import Yolo_preprocessor, Yolo_postprocessor
+from processer import Yolo_preprocessor, Yolo_postprocessor
 import torch
 import numpy as np
 import onnxruntime
@@ -10,7 +10,7 @@ if __name__ == "__main__":
     postprocessor = Yolo_postprocessor()
 
 
-    dummy_image = torch.tensor( cv2.imread('samples/DF0N5391.jpg'))
+    dummy_image = torch.tensor( cv2.imread('samples/DF0N5391.jpg')).to(torch.float32)
 
     # Exprot preprocessor onnx
     torch.onnx.export(
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     dummy_output = torch.tensor(dummy_output)
 
     dummy_output = torch.zeros([1, 18900, 85])
-    dummy_image = torch.zeros([1000, 1000, 3]).to(torch.uint8)
+    dummy_image = torch.zeros([1000, 1000, 3]).to(torch.float32)
     print("====================================================")
     torch.onnx.export(
         postprocessor,
